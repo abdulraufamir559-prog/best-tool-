@@ -1,7 +1,7 @@
 --[[
   @name: Google Gemini text to audio generator
   @author: Abdul Rauf Amir
-  @version: 1.3
+  @version: 1.4
   @description: Advanced TTS with Emotions - Direct Save to Downloads & Auto Update
 ]]
 
@@ -26,7 +26,7 @@ local mainHandler = Handler(Looper.getMainLooper())
 local CHAR_LIMIT = 10000
 
 -- [Update Settings]
-local CURRENT_VERSION = "1.3"
+local CURRENT_VERSION = "1.4"
 local VERSION_URL = "https://raw.githubusercontent.com/abdulraufamir559-prog/best-tool-/main/version.txt"
 local UPDATE_CODE_URL = "https://raw.githubusercontent.com/abdulraufamir559-prog/best-tool-/main/main.lua"
 local PLUGIN_PATH = "/storage/emulated/0/解说/Plugins/Text to audio generator developed by Abdul Rauf/main.lua"
@@ -38,13 +38,13 @@ local EMOTIONS = {"Natural/Neutral", "Very Happy & Energetic", "Sad & Emotional"
 local googleApiKey = ""
 local generatedAudioPath = nil
 local mediaPlayer = nil
+local mainDlg = nil
 
 local PREFS_NAME = "Gemini_TTS_Abdul_Rauf"
 local prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
 -- [Helper Functions]
 function trim(s) return s and s:match("^%s*(.-)%s*$") or "" end
-
 function loadSettings() googleApiKey = prefs.getString("apikey", "") end
 function saveSettings() local editor = prefs.edit(); editor.putString("apikey", googleApiKey); editor.apply() end
 
@@ -102,7 +102,48 @@ function downloadUpdate(onlineVersion)
     end)
 end
 
--- [Audio Functions]
+-- [API Settings Dialog]
+function showApiSettings()
+    local v = {}
+    local l = {LinearLayout, orientation="vertical", padding="20dp", {TextView, text="Google Gemini API Settings", textSize=16, textColor="#2196F3", paddingBottom="10dp"}, {EditText, id="apiInput", hint="Enter API Key", layout_width="fill", backgroundColor="#F5F5F5", padding="10dp"}, {Button, id="saveBtn", text="SAVE KEY", layout_width="fill", layout_marginTop="10dp", backgroundColor="#4CAF50", textColor="#FFFFFF"}}
+    local d = LuaDialog(context).setView(loadlayout(l, v))
+    v.apiInput.setText(googleApiKey)
+    v.saveBtn.onClick = function() 
+        googleApiKey = v.apiInput.getText().toString()
+        saveSettings()
+        Toast.makeText(context, "API Key Saved!", 0).show()
+        d.dismiss() 
+    end
+    d.show()
+end
+
+-- [About & WhatsApp Redirect]
+function showAboutDialog()
+    local v = {}
+    local l = {
+        LinearLayout, orientation="vertical", padding="20dp",
+        {TextView, text="Google Gemini TTS", textSize=18, textColor="#2E7D32", gravity="center", typeface=Typeface.DEFAULT_BOLD},
+        {TextView, text="Developer: Abdul Rauf Amir\nVersion: "..CURRENT_VERSION, gravity="center", paddingBottom="20dp"},
+        {Button, id="waBtn", text="SEND FEEDBACK (WHATSAPP)", layout_width="fill", backgroundColor="#25D366", textColor="#FFFFFF"},
+        {Button, id="apiBtn", text="API SETTINGS", layout_width="fill", layout_marginTop="10dp", backgroundColor="#9C27B0", textColor="#FFFFFF"},
+        {Button, id="closeBtn", text="BACK", layout_width="fill", layout_marginTop="10dp", backgroundColor="#9E9E9E", textColor="#FFFFFF"}
+    }
+    local d = LuaDialog(context).setView(loadlayout(l, v))
+    
+    v.waBtn.onClick = function()
+        local msg = "Assalam-o-Alaikum Abdul Rauf,\n\nMain aapka Google Gemini TTS extension use kar raha hoon. Extension bohat acha hai, mujay is baray mein feedback dena hai..."
+        local url = "https://wa.me/923234391100?text=" .. Uri.encode(msg)
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        d.dismiss()
+        if mainDlg then mainDlg.dismiss() end -- Extension close
+    end
+    
+    v.apiBtn.onClick = function() d.dismiss(); showApiSettings() end
+    v.closeBtn.onClick = function() d.dismiss() end
+    d.show()
+end
+
+-- [Audio Generation & UI]
 function writeWavHeader(outStream, totalAudioLen)
     local sampleRate, channels, bitsPerSample = 24000, 1, 16
     local byteRate = sampleRate * channels * (bitsPerSample / 8)
@@ -116,10 +157,7 @@ function writeWavHeader(outStream, totalAudioLen)
 end
 
 function saveToDownloads()
-    if not generatedAudioPath then 
-        Toast.makeText(context, "Pehle audio generate karein!", 0).show()
-        return 
-    end
+    if not generatedAudioPath then Toast.makeText(context, "Pehle audio generate karein!", 0).show() return end
     local downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
     local fileName = "Gemini_TTS_" .. os.date("%Y%m%d_%H%M%S") .. ".wav"
     local destFile = File(downloadDir, fileName)
@@ -128,10 +166,7 @@ function saveToDownloads()
     local output = FileOutputStream(destFile)
     local buffer = byte[4096]
     local len = input.read(buffer)
-    while len > 0 do
-        output.write(buffer, 0, len)
-        len = input.read(buffer)
-    end
+    while len > 0 do output.write(buffer, 0, len); len = input.read(buffer) end
     input.close(); output.close()
     Toast.makeText(context, "Saved to Downloads: " .. fileName, 1).show()
 end
@@ -154,71 +189,4 @@ function generateAudio(text, voice, apikey, emotion, generateBtn, playBtn, pause
                 fos.write(bytes)
                 fos.close()
                 generatedAudioPath = tempPath
-                mainHandler.post(Runnable({run=function()
-                    resultLayout.setVisibility(View.VISIBLE)
-                    playBtn.setEnabled(true)
-                    generateBtn.setText("REGENERATE")
-                    generateBtn.setEnabled(true)
-                    Toast.makeText(context, "Audio Tayyar Hai!", 0).show()
-                end}))
-            end
-        else
-            mainHandler.post(Runnable({run=function()
-                generateBtn.setEnabled(true); generateBtn.setText("GENERATE")
-                Toast.makeText(context, "Error: " .. code, 0).show()
-            end}))
-        end
-    end)
-end
-
-function showMain()
-    loadSettings()
-    local views = {}
-    local layout = { ScrollView, layout_width="fill", { LinearLayout, orientation="vertical", padding="20dp", {TextView, text="Google Gemini TTS", textSize=18, textColor="#2E7D32", gravity="center", typeface=Typeface.DEFAULT_BOLD}, {TextView, text="By Abdul Rauf Amir", gravity="center", paddingBottom="15dp"}, {EditText, id="textInput", hint="Enter text...", layout_height="120dp", layout_width="fill", gravity=Gravity.TOP, backgroundColor="#F5F5F5", padding="10dp"}, {TextView, text="Emotion:", layout_marginTop="10dp"}, {Spinner, id="emotionSpin", layout_width="fill"}, {TextView, text="Voice:", layout_marginTop="5dp"}, {Spinner, id="voiceSpin", layout_width="fill"}, {Button, id="generateBtn", text="GENERATE", layout_width="fill", layout_marginTop="15dp", backgroundColor="#2196F3", textColor="#FFFFFF"}, {LinearLayout, id="resultLayout", visibility=View.GONE, layout_marginTop="10dp", {Button, id="playBtn", text="PLAY", layout_weight=1, backgroundColor="#4CAF50", textColor="#FFFFFF"}, {Button, id="pauseBtn", text="PAUSE", layout_weight=1, backgroundColor="#9E9E9E", textColor="#FFFFFF"}, {Button, id="downloadBtn", text="DOWNLOAD", layout_weight=1.5, backgroundColor="#FF9800", textColor="#FFFFFF"}}, {LinearLayout, orientation="horizontal", layout_marginTop="20dp", layout_width="fill", {Button, id="apiBtn", text="API", layout_weight=1}, {Button, id="waBtn", text="WHATSAPP", layout_weight=1, backgroundColor="#25D366", textColor="#FFFFFF"}}, {Button, id="exitBtn", text="EXIT", layout_width="fill", backgroundColor="#D32F2F", textColor="#FFFFFF", layout_marginTop="10dp"} } }
-    local dlg = LuaDialog(context).setView(loadlayout(layout, views))
-    
-    views.textInput.setFilters({InputFilter.LengthFilter(CHAR_LIMIT)})
-    views.emotionSpin.setAdapter(ArrayAdapter(context, android.R.layout.simple_spinner_item, EMOTIONS))
-    views.voiceSpin.setAdapter(ArrayAdapter(context, android.R.layout.simple_spinner_item, VOICE_LIST))
-    
-    views.generateBtn.onClick = function()
-        local txt = views.textInput.getText().toString()
-        if txt == "" or googleApiKey == "" then Toast.makeText(context, "API ya Text missing!", 0).show() return end
-        views.generateBtn.setText("Processing..."); views.generateBtn.setEnabled(false)
-        generateAudio(txt, VOICE_LIST[views.voiceSpin.getSelectedItemPosition()+1], googleApiKey, EMOTIONS[views.emotionSpin.getSelectedItemPosition()+1], views.generateBtn, views.playBtn, views.pauseBtn, views.resultLayout)
-    end
-    
-    views.playBtn.onClick = function()
-        if mediaPlayer then mediaPlayer.release() end
-        mediaPlayer = MediaPlayer(); mediaPlayer.setDataSource(generatedAudioPath); mediaPlayer.prepare(); mediaPlayer.start()
-        views.playBtn.setEnabled(false); views.pauseBtn.setEnabled(true)
-    end
-    
-    views.pauseBtn.onClick = function()
-        if mediaPlayer and mediaPlayer.isPlaying() then mediaPlayer.pause(); views.playBtn.setEnabled(true); views.pauseBtn.setEnabled(false) end
-    end
-    views.downloadBtn.onClick = function() saveToDownloads() end
-    
-    views.apiBtn.onClick = function()
-        local v = {}
-        local l = {LinearLayout, orientation="vertical", padding="20dp", {EditText, id="apiInput", hint="API Key", layout_width="fill"}, {Button, id="saveBtn", text="SAVE", layout_width="fill"}}
-        local d = LuaDialog(context).setView(loadlayout(l, v))
-        v.apiInput.setText(googleApiKey)
-        v.saveBtn.onClick = function() googleApiKey = v.apiInput.getText().toString(); saveSettings(); d.dismiss() end
-        d.show()
-    end
-    
-    views.waBtn.onClick = function() 
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://chat.whatsapp.com/B4ptEIk0G5oDpajoujjlZs"))) 
-    end
-    
-    views.exitBtn.onClick = function() 
-        if mediaPlayer then mediaPlayer.release() end
-        dlg.dismiss() 
-    end
-    
-    dlg.show()
-    mainHandler.postDelayed(Runnable({run=checkUpdate}), 2000)
-end
-
-showMain()
+                mainHandler

@@ -2,7 +2,7 @@
   @name: Google Gemini text to audio generator
   @author: Abdul Rauf Amir
   @version: 1.3
-  @description: Advanced TTS with Emotions - Direct Save to Downloads
+  @description: Advanced TTS with Emotions - Direct Save to Downloads & Auto Update
 ]]
 
 require "import"
@@ -25,6 +25,13 @@ local context = activity or service
 local mainHandler = Handler(Looper.getMainLooper())
 local CHAR_LIMIT = 10000
 
+-- [Update Settings]
+local CURRENT_VERSION = "1.3"
+local VERSION_URL = "https://raw.githubusercontent.com/abdulraufamir559-prog/best-tool-/main/version.txt"
+local UPDATE_CODE_URL = "https://raw.githubusercontent.com/abdulraufamir559-prog/best-tool-/main/main.lua"
+local PLUGIN_PATH = "/storage/emulated/0/解说/Plugins/Text to audio generator developed by Abdul Rauf/main.lua"
+local updateInProgress = false
+
 local VOICE_LIST = {"Puck", "Kore", "Charon", "Zephyr", "Fenrir", "Leda", "Orus", "Aoede", "Callirrhoe", "Autonoe", "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi", "Laomedeia", "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima"}
 local EMOTIONS = {"Natural/Neutral", "Very Happy & Energetic", "Sad & Emotional", "Angry & Loud", "Serious & Professional", "Whispering/Secretive", "Excited/Cheer", "Surprised/Shocked", "Tired/Sleepy", "Shy/Romantic", "Heroic/Epic", "Sarcastic/Funny", "Mysterious/Dark"}
 
@@ -40,6 +47,60 @@ function trim(s) return s and s:match("^%s*(.-)%s*$") or "" end
 
 function loadSettings() googleApiKey = prefs.getString("apikey", "") end
 function saveSettings() local editor = prefs.edit(); editor.putString("apikey", googleApiKey); editor.apply() end
+
+-- [Update Logic]
+function checkUpdate()
+    if updateInProgress then return end
+    local timestamp = tostring(os.time())
+    Http.get(VERSION_URL .. "?t=" .. timestamp, function(code, response)
+        if code == 200 and response then
+            local onlineVersion = trim(response)
+            if onlineVersion ~= CURRENT_VERSION then
+                mainHandler.post(Runnable({
+                    run = function()
+                        local updateDlg = LuaDialog(context)
+                        updateDlg.setTitle("Update Available!")
+                        updateDlg.setMessage("New Version: " .. onlineVersion .. "\nCurrent Version: " .. CURRENT_VERSION .. "\n\nKya aap update karna chahtay hain?")
+                        updateDlg.setButton("Update Now", function()
+                            updateDlg.dismiss()
+                            downloadUpdate(onlineVersion)
+                        end)
+                        updateDlg.setButton2("Later", function() updateDlg.dismiss() end)
+                        updateDlg.show()
+                    end
+                }))
+            end
+        end
+    end)
+end
+
+function downloadUpdate(onlineVersion)
+    updateInProgress = true
+    Toast.makeText(context, "Updating... Please wait", 0).show()
+    Http.get(UPDATE_CODE_URL .. "?t=" .. os.time(), function(code, mainCode)
+        if code == 200 and mainCode and trim(mainCode) ~= "" then
+            local f = io.open(PLUGIN_PATH, "w")
+            if f then
+                f:write(mainCode)
+                f:close()
+                mainHandler.post(Runnable({
+                    run = function()
+                        local successDlg = LuaDialog(context)
+                        successDlg.setTitle("Success")
+                        successDlg.setMessage("Update successful! Please restart the plugin.")
+                        successDlg.setButton("OK", function() successDlg.dismiss() end)
+                        successDlg.show()
+                    end
+                }))
+            else
+              Toast.makeText(context, "File Write Error!", 0).show()
+            end
+        else
+            Toast.makeText(context, "Update Failed!", 0).show()
+        end
+        updateInProgress = false
+    end)
+end
 
 -- [Audio Functions]
 function writeWavHeader(outStream, totalAudioLen)
@@ -157,6 +218,7 @@ function showMain()
     end
     
     dlg.show()
+    mainHandler.postDelayed(Runnable({run=checkUpdate}), 2000)
 end
 
 showMain()
